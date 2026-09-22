@@ -1,163 +1,200 @@
 # mcp-official-sdk-lab
 
-独立于原有 `mcp` 仓库的 MCP 官方 SDK 验证工程。
+这是一个**独立仓库**，不依赖也不修改原来的 `mcp` 工程。
 
-工程包含两个完全独立的应用：
+用途只有两部分：
 
-- `client`：使用 MCP 官方 TypeScript SDK 发起 MCP 请求，作用类似原有 `mcp-client`
-- `server`：使用 MCP 官方 TypeScript SDK 启动 MCP Server
+1. `client`：使用 MCP 官方 Python SDK 发起 MCP 请求，作用类似原来的 Client 测试工程。
+2. `server`：使用 MCP 官方 Python SDK 启动一个独立 MCP Server。
 
-两个应用不会运行在同一个进程或复用同一个 MCP 实例。
+Client 和 Server 是两个独立进程。Client 不会在进程内创建或复用 Server 实例。
 
-## 官方 SDK
+## 版本
 
-使用：
+- Python: >= 3.10
+- MCP 官方 Python SDK: `mcp==2.2.0`
+- 2025 era: 最高到 `2025-11-25`，使用 `initialize`
+- 2026 era: `2026-07-28`，使用 modern protocol / `server/discover`
 
-- `@modelcontextprotocol/client` 2.0.0
-- `@modelcontextprotocol/server` 2.0.0
-- `@modelcontextprotocol/node` 2.0.0
-- Node.js >= 20
+官方 Python SDK 的 Server 在同一个 Streamable HTTP endpoint 上原生兼容两代协议。官方当前没有 Server 端的“只允许 2025”或“只允许 2026”的版本开关，因此这里不伪造该能力。
 
-官方 TypeScript SDK v2 把 MCP 协议分为两代：
+## 工程结构
 
-- 2025 era：使用 `initialize`
-- 2026 era：`2026-07-28`，使用 `server/discover` 和 modern request envelope
-
-## 支持的 MCP 版本
-
-Client 和 Server 都支持：
-
-- `2025-03-26`
-- `2025-06-18`
-- `2025-11-25`
-- `2026-07-28`
+```text
+mcp-official-sdk-lab/
+├── pyproject.toml
+├── client/
+│   ├── __init__.py
+│   └── main.py
+└── server/
+    ├── __init__.py
+    └── main.py
+```
 
 ## 安装
 
-在工程根目录：
+推荐 uv：
 
 ```bash
-npm install
+uv sync
 ```
 
-## 启动 Server
-
-### 2025 独立实例
+也可以使用普通 pip：
 
 ```bash
-npm run server:2025
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
 ```
 
-默认：
+## 1. 启动独立 Server
 
-- protocol: `2025-11-25`
-- port: `3100`
-- MCP: `http://127.0.0.1:3100/mcp`
-- health: `http://127.0.0.1:3100/health`
-
-也可指定其他 2025 版本：
+终端 A：
 
 ```bash
-npm run start --workspace server -- --protocol 2025-06-18 --port 3102
+uv run python -m server.main
 ```
 
-### 2026-07-28 独立实例
+默认地址：
 
-另开一个终端：
-
-```bash
-npm run server:2026
+```text
+http://127.0.0.1:8000/mcp
 ```
 
-默认：
-
-- protocol: `2026-07-28`
-- port: `3101`
-- MCP: `http://127.0.0.1:3101/mcp`
-- health: `http://127.0.0.1:3101/health`
-
-2025 和 2026 Server 是不同 Node 进程、不同 PID、不同端口、不同 MCP Server 实例。
-
-## Client 测试
-
-### 2025 tools/list
+指定端口：
 
 ```bash
-npm run client:2025:list
+uv run python -m server.main --host 127.0.0.1 --port 8100
 ```
 
-### 2025 tools/call
+Server 内置两个 Tools：
+
+- `echo`
+- `get_protocol_info`
+
+两个 Tool 都会返回当前请求实际使用的 `protocol_version`、协议时代和 Server PID。
+
+## 2. 使用 2025 协议 Client
+
+终端 B：
 
 ```bash
-npm run start --workspace client -- \
-  --protocol 2025-11-25 \
-  --url http://127.0.0.1:3100/mcp \
+uv run python -m client.main \
+  --protocol 2025 \
+  --url http://127.0.0.1:8000/mcp \
+  --action list
+```
+
+此模式对应官方 SDK：
+
+```python
+Client(url, mode="legacy")
+```
+
+它**不会先发 server/discover**，而是直接执行 2025-era 的 `initialize` 握手。
+
+当前官方 SDK 的最新 handshake-era 版本是：
+
+```text
+2025-11-25
+```
+
+查看 Server 实际识别到的协议：
+
+```bash
+uv run python -m client.main \
+  --protocol 2025 \
+  --action call \
+  --tool get_protocol_info \
+  --args '{}'
+```
+
+## 3. 使用 2026-07-28 Client
+
+```bash
+uv run python -m client.main \
+  --protocol 2026-07-28 \
+  --url http://127.0.0.1:8000/mcp \
+  --action list
+```
+
+此模式对应：
+
+```python
+Client(url, mode="2026-07-28")
+```
+
+这是 modern 协议版本。
+
+验证 Tool：
+
+```bash
+uv run python -m client.main \
+  --protocol 2026-07-28 \
+  --action call \
+  --tool get_protocol_info \
+  --args '{}'
+```
+
+返回中应看到：
+
+```json
+{
+  "protocol_version": "2026-07-28",
+  "era": "2026-modern"
+}
+```
+
+## 4. 自动协商模式
+
+也提供：
+
+```bash
+uv run python -m client.main --protocol auto --action list
+```
+
+对应：
+
+```python
+Client(url)
+```
+
+官方 SDK 会先发送 `server/discover`：
+
+- modern Server 响应后采用 `2026-07-28`
+- 老 Server 不支持 `server/discover` 时回退到 `initialize`
+
+## tools/call 示例
+
+2025：
+
+```bash
+uv run python -m client.main \
+  --protocol 2025 \
   --action call \
   --tool echo \
   --args '{"text":"hello-2025"}'
 ```
 
-### 2026-07-28 tools/list
+2026：
 
 ```bash
-npm run client:2026:list
-```
-
-### 2026-07-28 tools/call
-
-```bash
-npm run start --workspace client -- \
+uv run python -m client.main \
   --protocol 2026-07-28 \
-  --url http://127.0.0.1:3101/mcp \
   --action call \
   --tool echo \
   --args '{"text":"hello-2026"}'
 ```
 
-## 验证实例隔离
+## 为什么 Server 不提供 --protocol 参数
 
-Server 内置：
+这是官方 Python SDK v2 的行为，不是本工程限制。
 
-- `echo`
-- `get-protocol-info`
+官方 Server 的 Streamable HTTP 入口会按请求自动路由：
 
-`get-protocol-info` 返回当前 Server 的：
+- 无 modern version header / handshake-era 请求 -> 2025 legacy 路径
+- `MCP-Protocol-Version: 2026-07-28` -> modern 路径
 
-- `configuredProtocol`
-- `processId`
+官方目前明确没有 `legacy=`、版本 allowlist 或禁用某个 era 的 Server 配置。
 
-因此可以直接确认 2025 和 2026 请求是否命中了不同实例。
-
-## 版本行为
-
-### 2025
-
-Client 使用：
-
-- `versionNegotiation.mode = legacy`
-- `supportedProtocolVersions = [指定的2025版本]`
-
-因此通过 `initialize` 协商并固定具体 2025 版本。
-
-### 2026-07-28
-
-Client 使用：
-
-- `versionNegotiation.mode = { pin: "2026-07-28" }`
-- `supportedProtocolVersions = ["2026-07-28"]`
-
-因此不会 fallback 到 2025。
-
-Server 的 2026 实例：
-
-- 只声明 `2026-07-28`
-- `createMcpHandler(..., { legacy: "reject" })`
-- 接受 `server/discover`
-- 拒绝 2025 legacy opening
-
-Server 的 2025 实例：
-
-- 只声明选定的 2025 版本
-- 使用 legacy stateless HTTP serving
-
-这样不会出现一个 Server 实例同时承载两代协议的问题。
+因此本工程用 **Client 的 mode** 明确制造 2025 和 2026 两种请求，再通过 Server Tool 返回的 `ctx.request_context.protocol_version` 验证实际协议版本。
