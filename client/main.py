@@ -37,8 +37,9 @@ def parse_args() -> argparse.Namespace:
 def sdk_mode(protocol: ProtocolMode) -> str:
     if protocol == "2025":
         return "legacy"
-    if protocol == "2026-07-28":
-        return "2026-07-28"
+    # For the explicit 2026 test we deliberately use auto instead of a direct
+    # version pin, because auto actually sends server/discover. After connect
+    # we assert that negotiation landed on 2026-07-28.
     return "auto"
 
 
@@ -62,6 +63,12 @@ async def run() -> None:
         raise SystemExit("--args must decode to a JSON object")
 
     async with Client(args.url, mode=mode) as client:
+        if protocol == "2026-07-28" and client.protocol_version != "2026-07-28":
+            raise RuntimeError(
+                "Expected MCP 2026-07-28 after server/discover, "
+                f"but negotiated {client.protocol_version}"
+            )
+
         connection = {
             "target": args.url,
             "requested_mode": protocol,
