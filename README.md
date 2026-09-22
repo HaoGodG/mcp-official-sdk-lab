@@ -118,13 +118,13 @@ uv run python -m client.main \
   --action list
 ```
 
-此模式对应：
+此模式会故意使用官方 SDK 的自动协商：
 
 ```python
-Client(url, mode="2026-07-28")
+Client(url, mode="auto")
 ```
 
-这是 modern 协议版本。
+这样会真实发送 `server/discover`。连接成功后测试程序会检查最终协商版本必须是 `2026-07-28`；如果对端退回 2025，程序直接报错，因此不会把 fallback 误判成 2026 测试通过。
 
 验证 Tool：
 
@@ -153,11 +153,13 @@ uv run python -m client.main \
 uv run python -m client.main --protocol auto --action list
 ```
 
-对应：
+对应同样的官方自动协商：
 
 ```python
 Client(url)
 ```
+
+和显式 2026 测试的区别是：`auto` 模式允许最终 fallback 到 2025，而 `--protocol 2026-07-28` 会额外断言结果必须为 2026-07-28。
 
 官方 SDK 会先发送 `server/discover`：
 
