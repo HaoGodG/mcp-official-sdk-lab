@@ -1,0 +1,23 @@
+{
+  "name": "mcp-official-sdk-client",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "test:2025:list": "tsx src/index.ts --protocol 2025-11-25 --url http://127.0.0.1:3100/mcp --action list",
+    "test:2026:list": "tsx src/index.ts --protocol 2026-07-28 --url http://127.0.0.1:3101/mcp --action list",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "2.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^6.0.0"
+  }
+}

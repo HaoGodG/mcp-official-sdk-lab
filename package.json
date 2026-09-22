@@ -1,0 +1,16 @@
+{
+  "name": "mcp-official-sdk-lab",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "typecheck": "npm run typecheck --workspace client && npm run typecheck --workspace server",
+    "server:2025": "npm run start:2025 --workspace server",
+    "server:2026": "npm run start:2026 --workspace server",
+    "client:2025:list": "npm run test:2025:list --workspace client",
+    "client:2026:list": "npm run test:2026:list --workspace client"
+  }
+}
