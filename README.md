@@ -1,202 +1,170 @@
 # mcp-official-sdk-lab
 
-这是一个**独立仓库**，不依赖也不修改原来的 `mcp` 工程。
-
-用途只有两部分：
-
-1. `client`：使用 MCP 官方 Python SDK 发起 MCP 请求，作用类似原来的 Client 测试工程。
-2. `server`：使用 MCP 官方 Python SDK 启动一个独立 MCP Server。
-
-Client 和 Server 是两个独立进程。Client 不会在进程内创建或复用 Server 实例。
-
-## 版本
-
-- Python: >= 3.10
-- MCP 官方 Python SDK: `mcp==2.2.0`
-- 2025 era: 最高到 `2025-11-25`，使用 `initialize`
-- 2026 era: `2026-07-28`，使用 modern protocol / `server/discover`
-
-官方 Python SDK 的 Server 在同一个 Streamable HTTP endpoint 上原生兼容两代协议。官方当前没有 Server 端的“只允许 2025”或“只允许 2026”的版本开关，因此这里不伪造该能力。
-
-## 工程结构
+独立的 MCP 官方 Python SDK 协议兼容性实验工程，用于验证：
 
 ```text
-mcp-official-sdk-lab/
-├── pyproject.toml
-├── client/
-│   ├── __init__.py
-│   └── main.py
-└── server/
-    ├── __init__.py
-    └── main.py
+Python Client -> MCP Gateway -> Python Server
 ```
 
-## 安装
+Client/Server 都基于 `mcp==2.2.0`，并且 Server 按“协议版本 + transport”独立进程启动。
 
-推荐 uv：
+## 覆盖范围
+
+协议版本：
+
+- `2025-03-26`
+- `2025-06-18`
+- `2025-11-25`
+- `2026-07-28`
+
+Transport：
+
+- `streamable-http`
+- legacy HTTP+SSE（2025 handshake-era）
+- `2026-07-28 + SSE` 保留为预期失败用例
+
+握手：
+
+- 2025 三个版本：精确 `initialize`，不会统一退化成 2025-11-25
+- 2026-07-28：真实 `server/discover`
+- 每个 Server 只接受自己配置的精确版本
+
+## Server 端口矩阵
+
+| Transport | Protocol | Port |
+|---|---|---:|
+| Streamable HTTP | 2025-03-26 | 8101 |
+| Streamable HTTP | 2025-06-18 | 8102 |
+| Streamable HTTP | 2025-11-25 | 8103 |
+| Streamable HTTP | 2026-07-28 | 8104 |
+| SSE | 2025-03-26 | 8201 |
+| SSE | 2025-06-18 | 8202 |
+| SSE | 2025-11-25 | 8203 |
+| SSE | 2026-07-28 | 8204（negative test） |
+
+启动全部 Server：
 
 ```bash
-uv sync
+python scripts/start_servers.py
 ```
 
-也可以使用普通 pip：
+停止：
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
+python scripts/stop_servers.py
 ```
 
-## 1. 启动独立 Server
+## Client
 
-终端 A：
+精确 2025 版本：
 
 ```bash
-uv run python -m server.main
-```
-
-默认地址：
-
-```text
-http://127.0.0.1:8000/mcp
-```
-
-指定端口：
-
-```bash
-uv run python -m server.main --host 127.0.0.1 --port 8100
-```
-
-Server 内置两个 Tools：
-
-- `echo`
-- `get_protocol_info`
-
-两个 Tool 都会返回当前请求实际使用的 `protocol_version`、协议时代和 Server PID。
-
-## 2. 使用 2025 协议 Client
-
-终端 B：
-
-```bash
-uv run python -m client.main \
-  --protocol 2025 \
-  --url http://127.0.0.1:8000/mcp \
-  --action list
-```
-
-此模式对应官方 SDK：
-
-```python
-Client(url, mode="legacy")
-```
-
-它**不会先发 server/discover**，而是直接执行 2025-era 的 `initialize` 握手。
-
-当前官方 SDK 的最新 handshake-era 版本是：
-
-```text
-2025-11-25
-```
-
-查看 Server 实际识别到的协议：
-
-```bash
-uv run python -m client.main \
-  --protocol 2025 \
+python -m client.main \
+  --protocol 2025-03-26 \
+  --transport streamable-http \
+  --url http://127.0.0.1:8080/py/http/2025-03-26 \
+  --token-file /tmp/matrix-2025.jwt \
   --action call \
   --tool get_protocol_info \
   --args '{}'
-```
-
-## 3. 使用 2026-07-28 Client
-
-```bash
-uv run python -m client.main \
-  --protocol 2026-07-28 \
-  --url http://127.0.0.1:8000/mcp \
-  --action list
-```
-
-此模式会故意使用官方 SDK 的自动协商：
-
-```python
-Client(url, mode="auto")
-```
-
-这样会真实发送 `server/discover`。连接成功后测试程序会检查最终协商版本必须是 `2026-07-28`；如果对端退回 2025，程序直接报错，因此不会把 fallback 误判成 2026 测试通过。
-
-验证 Tool：
-
-```bash
-uv run python -m client.main \
-  --protocol 2026-07-28 \
-  --action call \
-  --tool get_protocol_info \
-  --args '{}'
-```
-
-返回中应看到：
-
-```json
-{
-  "protocol_version": "2026-07-28",
-  "era": "2026-modern"
-}
-```
-
-## 4. 自动协商模式
-
-也提供：
-
-```bash
-uv run python -m client.main --protocol auto --action list
-```
-
-对应同样的官方自动协商：
-
-```python
-Client(url)
-```
-
-和显式 2026 测试的区别是：`auto` 模式允许最终 fallback 到 2025，而 `--protocol 2026-07-28` 会额外断言结果必须为 2026-07-28。
-
-官方 SDK 会先发送 `server/discover`：
-
-- modern Server 响应后采用 `2026-07-28`
-- 老 Server 不支持 `server/discover` 时回退到 `initialize`
-
-## tools/call 示例
-
-2025：
-
-```bash
-uv run python -m client.main \
-  --protocol 2025 \
-  --action call \
-  --tool echo \
-  --args '{"text":"hello-2025"}'
 ```
 
 2026：
 
 ```bash
-uv run python -m client.main \
+python -m client.main \
   --protocol 2026-07-28 \
-  --action call \
-  --tool echo \
-  --args '{"text":"hello-2026"}'
+  --transport streamable-http \
+  --url http://127.0.0.1:8080/py/http/2026-07-28 \
+  --token-file /tmp/matrix-2026.jwt \
+  --action list
 ```
 
-## 为什么 Server 不提供 --protocol 参数
+SSE：
 
-这是官方 Python SDK v2 的行为，不是本工程限制。
+```bash
+python -m client.main \
+  --protocol 2025-11-25 \
+  --transport sse \
+  --url http://127.0.0.1:8080/py/sse/2025-11-25/sse \
+  --token-file /tmp/matrix-2025.jwt \
+  --action call \
+  --tool get_protocol_info \
+  --args '{}'
+```
 
-官方 Server 的 Streamable HTTP 入口会按请求自动路由：
+## Gateway 路由
 
-- 无 modern version header / handshake-era 请求 -> 2025 legacy 路径
-- `MCP-Protocol-Version: 2026-07-28` -> modern 路径
+Gateway 的 UAT 配置新增 8 条测试路由：
 
-官方目前明确没有 `legacy=`、版本 allowlist 或禁用某个 era 的 Server 配置。
+```text
+/py/http/2025-03-26
+/py/http/2025-06-18
+/py/http/2025-11-25
+/py/http/2026-07-28
 
-因此本工程用 **Client 的 mode** 明确制造 2025 和 2026 两种请求，再通过 Server Tool 返回的 `ctx.request_context.protocol_version` 验证实际协议版本。
+/py/sse/2025-03-26/**
+/py/sse/2025-06-18/**
+/py/sse/2025-11-25/**
+/py/sse/2026-07-28/**
+```
+
+Client 内置两套 dev-only tokenApply 身份：
+
+- `py-client-2025`：固定测试参数由 Client 代码生成
+- `py-client-2026`：固定测试参数由 Client 代码生成
+
+Gateway 的 `credentials.yml` 只保存对应 SHA-256，`permissions.yml` 为两个身份开放全部 8 条协议矩阵路由。上线前替换这些测试参数。
+
+Client 默认会先调用：
+
+```text
+POST http://127.0.0.1:8080/api/auth/tokenApply
+```
+
+获得 JWT 后再发 MCP 请求。也可以用 `--auth-profile none` 专门验证无 Token 场景，或用 `--token-file` 复用已有 JWT。
+
+## 自动矩阵
+
+```bash
+python scripts/run_matrix.py
+```
+
+Runner 会先真实执行两次 tokenApply，确认两枚 JWT 不同，再复用这两枚 Token 跑完整矩阵。
+
+矩阵覆盖：
+
+- 4 个 Streamable HTTP 同版本 `tools/list` + `tools/call`
+- 3 个 SSE handshake-era 同版本 `tools/list` + `tools/call`
+- 2026 + SSE 预期失败
+- 4 个 HTTP 版本的全部 12 个交叉组合，预期失败
+- HTTP Client -> SSE endpoint，预期失败
+- SSE Client -> HTTP endpoint，预期失败
+- 无 Token，预期失败
+- 篡改 JWT 签名，预期失败
+
+当前 E2E 基线：
+
+```text
+TOTAL: 31
+PASS : 31
+FAIL : 0
+```
+
+## Server Tools
+
+- `echo`
+- `get_protocol_info`
+
+`get_protocol_info` 返回：
+
+```json
+{
+  "configured_protocol": "2025-06-18",
+  "protocol_version": "2025-06-18",
+  "transport": "streamable-http",
+  "process_id": 12345
+}
+```
+
+用于确认请求经过 Gateway 后，实际到达的协议版本和 transport 没有被改写。

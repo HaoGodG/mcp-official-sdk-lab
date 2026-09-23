@@ -8,3 +8,9 @@ build/
 *.egg-info/
 .idea/
 .DS_Store
+.matrix-server-pids.json
+.matrix-logs/
+.matrix-invalid.jwt
+.matrix-2025.jwt
+.matrix-2026.jwt
+matrix-results.json
